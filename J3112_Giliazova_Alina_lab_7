@@ -1,0 +1,45 @@
+#include <vector>
+#include <iostream>
+#include <algorithm>
+
+using namespace std;
+
+class Solution {
+public:
+    long long maximumValueSum(vector<int>& nums, int k, vector<vector<int>>& edges) {
+        int num_elements = nums.size();
+        long long total_sum = 0;
+        int min_xor_difference = 1e9;
+        int min_nonxor_difference = 1e9;
+        int xor_improvement_count = 0;
+
+        for (int i = 0; i < num_elements; i++) {
+            int xor_result = nums[i] ^ k;
+
+            if (xor_result > nums[i]) {
+                xor_improvement_count++;
+                total_sum += xor_result;
+                min_xor_difference = min(min_xor_difference, xor_result - nums[i]);
+            } else {
+                total_sum += nums[i];
+                min_nonxor_difference = min(min_nonxor_difference, nums[i] - xor_result);
+            }
+        }
+
+        if (xor_improvement_count % 2 == 0) {
+            return total_sum;
+        }
+
+        return total_sum - min(min_xor_difference, min_nonxor_difference);
+    }
+};
+
+int main() {
+    vector<int> nums = {1, 2, 1};
+    vector<vector<int>> edges = {{0, 1}, {0, 2}};
+    int k = 3;
+
+    Solution solution;
+    cout << solution.maximumValueSum(nums, k, edges) << endl;
+    return 0;
+}
