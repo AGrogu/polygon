@@ -1,41 +1,46 @@
 #include <iostream>
-
+#include <string>
+#include <cstring>
 using namespace std;
 
 class Solution {
 public:
     int countDigitOne(int n) {
-        int count = 0;
-        long long factor = 1;
+        string num = to_string(n);
+        int len = num.size();
 
-        while (factor <= n) {
-            int high = n / (factor * 10);
-            int current = (n / factor) % 10;
-            int low = n % factor;
+        int dp[11][2][11];
+        memset(dp, -1, sizeof(dp));
 
-            if (current > 1) {
-                count += (high + 1) * factor;
-            } else if (current == 1) {
-                count += high * factor + (low + 1);
-            } else {
-                count += high * factor;
+        function<int(int, bool, int)> solve = [&](int pos, bool tight, int count) {
+            if (pos == len) {
+                return count;
             }
 
-            factor *= 10;
-        }
+            if (dp[pos][tight][count] != -1) {
+                return dp[pos][tight][count];
+            }
 
-        return count;
+            int limit = tight ? (num[pos] - '0') : 9;
+            int result = 0;
+
+            for (int digit = 0; digit <= limit; ++digit) {
+                result += solve(pos + 1, tight && (digit == limit), count + (digit == 1));
+            }
+
+            return dp[pos][tight][count] = result;
+        };
+
+        return solve(0, true, 0);
     }
 };
 
 int main() {
-    Solution solution;
     int n;
-
-    cout << "n = ";
+    cout << "Введите число: ";
     cin >> n;
 
+    Solution solution;
     cout << solution.countDigitOne(n) << endl;
-
     return 0;
 }
