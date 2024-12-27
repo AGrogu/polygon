@@ -1,0 +1,516 @@
+#include <queue>
+#include <unordered_map>
+#include <vector>
+#include <cmath>
+#include <limits>
+#include <algorithm>
+#include <string>
+#include <memory>
+#include <stack>
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <iomanip>
+#include <cassert>
+
+using namespace std;
+using namespace std::chrono;
+
+struct Node {
+    double longitude, latitude; // Координаты узла (долгота и широта)
+    vector<pair<Node*, double>> edges; // Список смежных узлов с весами ребер
+};
+
+struct Graph {
+    vector<unique_ptr<Node>> nodes; // Хранилище всех узлов графа
+    unordered_map<string, Node*> node_map; // Хеш-таблица для быстрого доступа к узлам по их координатам
+
+    // Добавить узел в граф
+    Node* addNode(double longitude, double latitude);
+
+    // Получить узел по заданным координатам
+    Node* getNode(double longitude, double latitude);
+
+    // Загрузить граф из файла
+    void readFromFile(const string& filename);
+
+    // Найти ближайший узел к заданным координатам
+    Node* findClosestNode(double latitude, double longitude) const;
+
+    // Напечатать путь и его длину
+    void printPath(const vector<Node*>& path);
+};
+
+// Реализация метода для добавления узла в граф
+Node* Graph::addNode(double longitude, double latitude) {
+    auto node = make_unique<Node>(Node{longitude, latitude});
+    Node* node_ptr = node.get();
+    nodes.push_back(std::move(node));
+
+    // Формируем строковый ключ на основе координат узла
+    ostringstream key_stream;
+    key_stream << fixed << setprecision(10) << longitude << "," << latitude;
+    string key = key_stream.str();
+
+    // Сохраняем узел в хеш-таблицу для быстрого доступа
+    node_map[key] = node_ptr;
+    return node_ptr;
+}
+
+// Реализация метода для получения узла по координатам
+Node* Graph::getNode(double longitude, double latitude) {
+    // Формируем строковый ключ на основе координат
+    ostringstream key_stream;
+    key_stream << fixed << setprecision(10) << longitude << "," << latitude;
+    string key = key_stream.str();
+
+    // Проверяем наличие узла в хеш-таблице
+    if (node_map.find(key) != node_map.end()) {
+        return node_map[key]; // Если узел найден, возвращаем указатель на него
+    }
+    return nullptr; // Если узел не найден, возвращаем nullptr
+}
+
+// Реализация метода для чтения графа из файла
+void Graph::readFromFile(const string& filename) {
+    ifstream file(filename);
+    string line;
+
+    while (getline(file, line)) {
+        istringstream line_stream(line);
+        string parent_data, edges_data;
+
+        // Парсим данные родительского узла
+        if (getline(line_stream, parent_data, ':')) {
+            double longitude1, latitude1;
+            replace(parent_data.begin(), parent_data.end(), ',', ' ');
+            istringstream parent_stream(parent_data);
+
+            // Извлекаем координаты родительского узла
+            if (!(parent_stream >> longitude1 >> latitude1)) {
+                cerr << "Ошибка парсинга координат родительского узла: " << parent_data << endl;
+                continue;
+            }
+
+            // Получаем или создаем родительский узел
+            Node* parent_node = getNode(longitude1, latitude1);
+            if (!parent_node) {
+                parent_node = addNode(longitude1, latitude1);
+            }
+
+            // Парсим данные о смежных узлах (ребрах)
+            while (getline(line_stream, edges_data, ';')) {
+                double longitude2, latitude2, weight;
+                replace(edges_data.begin(), edges_data.end(), ',', ' ');
+                istringstream edge_stream(edges_data);
+
+                // Извлекаем координаты и вес ребра
+                if (!(edge_stream >> longitude2 >> latitude2 >> weight)) {
+                    cerr << "Ошибка парсинга данных ребра: " << edges_data << endl;
+                    continue;
+                }
+
+                // Получаем или создаем дочерний узел
+                Node* child_node = getNode(longitude2, latitude2);
+                if (!child_node) {
+                    child_node = addNode(longitude2, latitude2);
+                }
+
+                // Добавляем ребро между узлами (в обе стороны)
+                parent_node->edges.emplace_back(child_node, weight);
+                child_node->edges.emplace_back(parent_node, weight);
+            }
+        }
+    }
+
+    file.close();
+}
+
+// Реализация метода для вывода пути
+void Graph::printPath(const vector<Node*>& path) {
+    if (path.empty()) {
+        cout << "Путь не найден.\n";
+        return;
+    }
+
+    double total_length = 0.0;
+
+    // Проходим по всем узлам в пути
+    for (size_t i = 0; i < path.size(); ++i) {
+        if (i < path.size() - 1) { // Если это не последний узел
+            // Ищем вес ребра между текущим и следующим узлом
+            for (const auto& edge : path[i]->edges) {
+                if (edge.first == path[i + 1]) {
+                    total_length += edge.second; // Добавляем вес ребра к общей длине
+                    break;
+                }
+            }
+        }
+    }
+
+    cout << "Общая длина пути: " << total_length << endl;
+}
+
+// Реализация метода для поиска ближайшего узла к заданным координатам
+Node* Graph::findClosestNode(double latitude, double longitude) const {
+    double minDistance = numeric_limits<double>::max(); // Переменная для хранения минимального расстояния
+    Node* closestNode = nullptr; // Указатель на ближайший узел
+
+    // Проходим по всем узлам в графе
+    for (const auto& node : nodes) {
+        // Вычисляем евклидово расстояние между заданными координатами и текущим узлом
+        double distance = sqrt(pow(node->latitude - latitude, 2) + pow(node->longitude - longitude, 2));
+        if (distance < minDistance) { // Если найдено меньшее расстояние
+            closestNode = node.get(); // Обновляем ближайший узел
+            minDistance = distance;
+        }
+    }
+
+    return closestNode;
+}
+
+vector<Node*> bfs(Node *start, Node *goal);
+vector<Node*> dfs(Node* start, Node* goal);
+vector<Node*> dijkstra(Graph& graph, Node* start, Node* goal);
+vector<Node*> aStar(Graph& graph, Node* start, Node* goal);
+
+// Реализация поиска пути с помощью BFS
+vector<Node*> bfs(Node *start, Node *goal) {
+    if (!start || !goal) { // Проверка наличия начального и конечного узлов
+        return {};
+    }
+
+    queue<Node*> queue; // Очередь для хранения узлов, которые нужно посетить
+    unordered_map<Node*, Node*> came_from; // Хранит информацию, откуда мы пришли в данный узел
+    unordered_map<Node*, bool> visited; // Хранит информацию о посещенных узлах
+
+    queue.push(start); // Добавляем начальный узел в очередь
+    visited[start] = true; // Помечаем начальный узел как посещенный
+
+    while (!queue.empty()) {
+        Node* current = queue.front(); // Извлекаем текущий узел из очереди
+        queue.pop();
+
+        if (current == goal) { // Если достигли цели
+            vector<Node*> path;
+            for (Node* at = goal; at != nullptr; at = came_from[at]) { // Восстанавливаем путь от цели до начала
+                path.push_back(at);
+            }
+            reverse(path.begin(), path.end()); // Переворачиваем путь
+            return path; // Возвращаем найденный путь
+        }
+
+        for (const auto& edge : current->edges) { // Итерируем по всем соседям текущего узла
+            Node* neighbor = edge.first;
+            if (!visited[neighbor]) { // Если сосед не был посещен
+                queue.push(neighbor); // Добавляем его в очередь
+                visited[neighbor] = true; // Помечаем его как посещенный
+                came_from[neighbor] = current; // Записываем, откуда мы пришли
+            }
+        }
+    }
+
+    return {}; // Возвращаем пустой путь
+}
+
+// Реализация поиска пути с помощью DFS
+vector<Node*> dfs(Node* start, Node* goal) {
+    if (!start || !goal) { // Проверка наличия начального и конечного узлов
+        return {};
+    }
+
+    unordered_map<Node*, bool> visited; // Хранит информацию о посещенных узлах
+    unordered_map<Node*, Node*> came_from; // Хранит информацию, откуда мы пришли в данный узел
+    stack<Node*> stack; // Стек для хранения узлов, которые нужно посетить
+
+    stack.push(start); // Добавляем начальный узел в стек
+    visited[start] = true; // Помечаем начальный узел как посещенный
+
+    while (!stack.empty()) {
+        Node* current = stack.top(); // Извлекаем текущий узел из стека
+        stack.pop();
+
+        if (current == goal) { // Если достигли цели
+            vector<Node*> path;
+            for (Node* at = goal; at != nullptr; at = came_from[at]) { // Восстанавливаем путь от цели до начала
+                path.push_back(at);
+            }
+            reverse(path.begin(), path.end()); // Переворачиваем путь
+            return path; // Возвращаем найденный путь
+        }
+
+        for (const auto& edge : current->edges) { // Итерируем по всем соседям текущего узла
+            Node* neighbor = edge.first;
+            if (!visited[neighbor]) { // Если сосед не был посещен
+                stack.push(neighbor); // Добавляем его в стек
+                visited[neighbor] = true; // Помечаем его как посещенный
+                came_from[neighbor] = current; // Записываем, откуда мы пришли
+            }
+        }
+    }
+
+    return {}; // Возвращаем пустой путь
+}
+
+// Реализация поиска кратчайшего пути с помощью алгоритма Дейкстры
+vector<Node*> dijkstra(Graph& graph, Node* start, Node* goal) {
+    if (!start || !goal) { // Проверка наличия начального и конечного узлов
+        return {};
+    }
+
+    unordered_map<Node*, double> distances; // Хранит минимальные расстояния до каждого узла
+    unordered_map<Node*, Node*> came_from; // Хранит информацию, откуда мы пришли в данный узел
+    unordered_map<Node*, bool> visited; // Хранит информацию о посещенных узлах
+
+    // Инициализация расстояний до всех узлов как бесконечность
+    for (const auto& node : graph.nodes) {
+        distances[node.get()] = numeric_limits<double>::infinity();
+    }
+    distances[start] = 0.0; // Расстояние до начального узла равно 0
+
+    using PQElement = pair<double, Node*>; // Тип элемента для очереди: пара (расстояние, узел)
+    priority_queue<PQElement, vector<PQElement>, greater<>> pq; // Очередь с приоритетом (по минимальному расстоянию)
+    pq.emplace(0.0, start); // Добавляем начальный узел в очередь
+
+    while (!pq.empty()) {
+        auto [current_distance, current_node] = pq.top(); // Извлекаем узел с минимальным расстоянием
+        pq.pop();
+
+        if (visited[current_node]) { // Если узел уже был обработан, пропускаем его
+            continue;
+        }
+        visited[current_node] = true; // Помечаем узел как посещенный
+
+        if (current_node == goal) { // Если достигли цели
+            vector<Node*> path;
+            for (Node* at = goal; at != nullptr; at = came_from[at]) { // Восстанавливаем путь от цели до начала
+                path.push_back(at);
+            }
+            reverse(path.begin(), path.end()); // Переворачиваем путь
+            return path; // Возвращаем найденный путь
+        }
+
+        // Обновляем расстояния до соседей
+        for (const auto& edge : current_node->edges) {
+            Node* neighbor = edge.first;
+            double weight = edge.second;
+
+            double new_distance = current_distance + weight; // Новое расстояние до соседа
+            if (new_distance < distances[neighbor]) { // Если нашли более короткий путь
+                distances[neighbor] = new_distance; // Обновляем расстояние
+                came_from[neighbor] = current_node; // Записываем, откуда мы пришли
+                pq.emplace(new_distance, neighbor); // Добавляем соседа в очередь
+            }
+        }
+    }
+
+    return {}; // Возвращаем пустой путь
+}
+
+// Функция эвристики для алгоритма A*
+// Возвращает евклидово расстояние между двумя узлами.
+// Используется как приближенная оценка расстояния от текущего узла до цели.
+double heuristic(Node* a, Node* b) {
+    return sqrt(pow(a->latitude - b->latitude, 2) + pow(a->longitude - b->longitude, 2));
+}
+
+// Реализация поиска кратчайшего пути с помощью алгоритма A*
+vector<Node*> aStar(Graph& graph, Node* start, Node* goal) {
+    if (!start || !goal) { // Проверка наличия начального и конечного узлов
+        return {};
+    }
+
+    unordered_map<Node*, double> gScore; // Расстояние от начального узла до текущего
+    unordered_map<Node*, double> fScore; // Оценка полного расстояния через текущий узел (gScore + эвристика)
+    unordered_map<Node*, Node*> came_from; // Хранит информацию, откуда мы пришли в данный узел
+
+    // Инициализация расстояний до всех узлов как бесконечность
+    for (const auto& node : graph.nodes) {
+        gScore[node.get()] = numeric_limits<double>::infinity();
+        fScore[node.get()] = numeric_limits<double>::infinity();
+    }
+    gScore[start] = 0.0; // Расстояние до начального узла равно 0
+    fScore[start] = heuristic(start, goal); // Оценка полного расстояния от начального узла
+
+    using PQElement = pair<double, Node*>; // Тип элемента для очереди: пара (fScore, узел)
+    priority_queue<PQElement, vector<PQElement>, greater<>> openSet; // Очередь с приоритетом
+    openSet.emplace(fScore[start], start); // Добавляем начальный узел в очередь
+
+    while (!openSet.empty()) {
+        Node* current = openSet.top().second; // Извлекаем узел с минимальным значением fScore
+        openSet.pop();
+
+        if (current == goal) { // Если достигли цели
+            vector<Node*> path;
+            for (Node* at = goal; at != nullptr; at = came_from[at]) { // Восстанавливаем путь от цели до начала
+                path.push_back(at);
+            }
+            reverse(path.begin(), path.end()); // Переворачиваем путь
+            return path; // Возвращаем найденный путь
+        }
+
+        // Обрабатываем всех соседей текущего узла
+        for (const auto& edge : current->edges) {
+            Node* neighbor = edge.first;
+            double weight = edge.second;
+
+            double tentative_gScore = gScore[current] + weight; // Предполагаемое расстояние до соседа
+            if (tentative_gScore < gScore[neighbor]) { // Если нашли более короткий путь
+                came_from[neighbor] = current; // Записываем, откуда мы пришли
+                gScore[neighbor] = tentative_gScore; // Обновляем gScore для соседа
+                fScore[neighbor] = tentative_gScore + heuristic(neighbor, goal); // Обновляем fScore для соседа
+
+                openSet.emplace(fScore[neighbor], neighbor); // Добавляем соседа в очередь
+            }
+        }
+    }
+
+    return {}; // Возвращаем пустой путь
+}
+
+// Тестирование
+void TestBFS() {
+    Graph testGraph;
+
+    Node* nodeA = testGraph.addNode(0.0, 0.0);
+    Node* nodeB = testGraph.addNode(1.0, 0.0);
+    Node* nodeC = testGraph.addNode(0.0, 1.0);
+
+    nodeA->edges.emplace_back(nodeB, 1.0);
+    nodeB->edges.emplace_back(nodeC, 1.0);
+
+    vector<Node*> path = bfs(nodeA, nodeC);
+
+    assert(path.size() == 3);
+    assert(path[0] == nodeA);
+    assert(path[1] == nodeB);
+    assert(path[2] == nodeC);
+
+    cout << "BFS test passed!" << endl;
+}
+
+void TestDFS() {
+    Graph testGraph;
+
+    Node* nodeA = testGraph.addNode(0.0, 0.0);
+    Node* nodeB = testGraph.addNode(1.0, 0.0);
+    Node* nodeC = testGraph.addNode(0.0, 1.0);
+
+    nodeA->edges.emplace_back(nodeB, 1.0);
+    nodeB->edges.emplace_back(nodeC, 1.0);
+
+    vector<Node*> path = dfs(nodeA, nodeC);
+
+    assert(path.size() == 3);
+    assert(path[0] == nodeA);
+    assert(path[1] == nodeB);
+    assert(path[2] == nodeC);
+
+    cout << "DFS test passed!" << endl;
+}
+
+void TestDijkstra() {
+    Graph testGraph;
+
+    Node* nodeA = testGraph.addNode(0.0, 0.0);
+    Node* nodeB = testGraph.addNode(1.0, 0.0);
+    Node* nodeC = testGraph.addNode(0.0, 1.0);
+    Node* nodeD = testGraph.addNode(1.0, 1.0);
+
+    nodeA->edges.emplace_back(nodeB, 1.0);
+    nodeB->edges.emplace_back(nodeD, 2.0);
+    nodeA->edges.emplace_back(nodeC, 1.0);
+    nodeC->edges.emplace_back(nodeD, 1.0);
+
+    vector<Node*> path = dijkstra(testGraph, nodeA, nodeD);
+
+    assert(path.size() == 3);
+    assert(path[0] == nodeA);
+    assert(path[1] == nodeC);
+    assert(path[2] == nodeD);
+
+    cout << "Dijkstra test passed!" << endl;
+}
+
+void TestAStar() {
+    Graph testGraph;
+
+    Node* nodeA = testGraph.addNode(0.0, 0.0);
+    Node* nodeB = testGraph.addNode(1.0, 0.0);
+    Node* nodeC = testGraph.addNode(0.0, 1.0);
+    Node* nodeD = testGraph.addNode(1.0, 1.0);
+
+    nodeA->edges.emplace_back(nodeB, 1.0);
+    nodeB->edges.emplace_back(nodeD, 2.0);
+    nodeA->edges.emplace_back(nodeC, 1.0);
+    nodeC->edges.emplace_back(nodeD, 1.0);
+
+    vector<Node*> path = aStar(testGraph, nodeA, nodeD);
+
+    assert(path.size() == 3);
+    assert(path[0] == nodeA);
+    assert(path[1] == nodeC);
+    assert(path[2] == nodeD);
+
+    cout << "A* test passed!" << endl;
+}
+
+int main() {
+    Graph graph;
+    graph.readFromFile("spb_graph.txt");
+
+    //Исходные координаты
+    constexpr double start_latitude = 59.851263;
+    constexpr double start_longitude = 30.376972;
+    constexpr double goal_latitude = 59.957028;
+    constexpr double goal_longitude = 30.310033;
+
+    Node* start_node = graph.findClosestNode(start_latitude, start_longitude);
+    Node* goal_node = graph.findClosestNode(goal_latitude, goal_longitude);
+
+    //BFS
+    cout << "Результаты для BFS:" << endl;
+    auto start_time = high_resolution_clock::now(); // Запись времени начала
+    const vector<Node *> bfs_path = bfs(start_node, goal_node);
+    auto end_time = high_resolution_clock::now(); // Запись времени окончания
+    graph.printPath(bfs_path);
+    auto bfs_duration = duration_cast<milliseconds>(end_time - start_time); // Разница времени
+    cout << "Время выполнения: " << bfs_duration.count() << " мс" << endl;
+
+    //DFS
+    cout << "\nРезультаты для DFS:" << endl;
+    start_time = high_resolution_clock::now();
+    const vector<Node *> dfs_path = dfs(start_node, goal_node);
+    end_time = high_resolution_clock::now();
+    graph.printPath(dfs_path);
+    auto dfs_duration = duration_cast<milliseconds>(end_time - start_time);
+    cout << "Время выполнения: " << dfs_duration.count() << " мс" << endl;
+
+    //Dijkstra
+    cout << "\nРезультаты для Dijkstra:" << endl;
+    start_time = high_resolution_clock::now();
+    const vector<Node *> dijkstra_path = dijkstra(graph, start_node, goal_node);
+    end_time = high_resolution_clock::now();
+    graph.printPath(dijkstra_path);
+    auto dijkstra_duration = duration_cast<milliseconds>(end_time - start_time);
+    cout << "Время выполнения: " << dijkstra_duration.count() << " мс" << endl;
+
+    //A*
+    cout << "\nРезультаты для A*:" << endl;
+    start_time = high_resolution_clock::now();
+    const vector<Node *> a_star_path = aStar(graph, start_node, goal_node);
+    end_time = high_resolution_clock::now();
+    graph.printPath(a_star_path);
+    auto a_star_duration = duration_cast<milliseconds>(end_time - start_time);
+    cout << "Время выполнения: " << a_star_duration.count() << " мс" << endl;
+
+    cout << "\nТесты:" << endl;
+
+    TestBFS();
+    TestDFS();
+    TestDijkstra();
+    TestAStar();
+
+    return 0;
+}
+
